@@ -58,41 +58,46 @@ jobs:
             nasm \
             autoconf \
             automake \
-            libtool
+            libtool \
+            meson \
+            ninja-build
             
       - name: Install additional dependencies
         run: |
           sudo apt-get -y install -qq \
             ${{ github.event.inputs.additional-dependencies }}
 
-      - name: Configure environment 
-        run: |
-          echo "BUILD_DIR=$GITHUB_WORKSPACE/build" >> $GITHUB_ENV
-          echo "BUILD_DIR_FFMPEG=$BUILD_DIR/${{ github.event.inputs.ffmpeg-prefix }}" >> $GITHUB_ENV
-          
-          echo "TARGET_API_LEVEL=${{ github.event.inputs.sdk-version }}" >> $GITHUB_ENV
-          echo "TARGET_ARCH=aarch64" >> $GITHUB_ENV
-          echo "TARGET_TRIPLE=aarch64-linux-android" >> $GITHUB_ENV
-          echo "TARGET_PLATFORM=android-$TARGET_API_LEVEL" >> $GITHUB_ENV
-          
-          echo "NDK_TOOLCHAIN=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64" >> $GITHUB_ENV
-          echo "SYSROOT=$NDK_TOOLCHAIN/sysroot" >> $GITHUB_ENV
-          
-          echo "CC=$NDK_TOOLCHAIN/bin/${TARGET_TRIPLE}${TARGET_API_LEVEL}-clang" >> $GITHUB_ENV
-          echo "CXX=$NDK_TOOLCHAIN/bin/${TARGET_TRIPLE}${TARGET_API_LEVEL}-clang++" >> $GITHUB_ENV
-          echo "LD=$NDK_TOOLCHAIN/bin/ld" >> $GITHUB_ENV
-          echo "AR=$NDK_TOOLCHAIN/bin/llvm-ar" >> $GITHUB_ENV
-          echo "AS=$CC" >> $GITHUB_ENV
-          echo "NM=$NDK_TOOLCHAIN/bin/llvm-nm" >> $GITHUB_ENV
-          echo "RANLIB=$NDK_TOOLCHAIN/bin/llvm-ranlib" >> $GITHUB_ENV
-          echo "STRIP=$NDK_TOOLCHAIN/bin/llvm-strip" >> $GITHUB_ENV
-          
       - name: Build FFmpeg
         run: |
-          cd ffmpeg
+          # Set environment variables
+          export BUILD_DIR="$GITHUB_WORKSPACE/build"
+          export BUILD_DIR_FFMPEG="$BUILD_DIR/${{ github.event.inputs.ffmpeg-prefix }}"
           
-          # Set environment variables for the configure script
+          export TARGET_API_LEVEL="${{ github.event.inputs.sdk-version }}"
+          export TARGET_ARCH="aarch64"
+          export TARGET_TRIPLE="aarch64-linux-android"
+          
+          export NDK_TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
+          export SYSROOT="$NDK_TOOLCHAIN/sysroot"
+          
+          export CC="$NDK_TOOLCHAIN/bin/${TARGET_TRIPLE}${TARGET_API_LEVEL}-clang"
+          export CXX="$NDK_TOOLCHAIN/bin/${TARGET_TRIPLE}${TARGET_API_LEVEL}-clang++"
+          export LD="$NDK_TOOLCHAIN/bin/ld"
+          export AR="$NDK_TOOLCHAIN/bin/llvm-ar"
+          export AS="$CC"
+          export NM="$NDK_TOOLCHAIN/bin/llvm-nm"
+          export RANLIB="$NDK_TOOLCHAIN/bin/llvm-ranlib"
+          export STRIP="$NDK_TOOLCHAIN/bin/llvm-strip"
+          
           export PATH="$NDK_TOOLCHAIN/bin:$PATH"
+          
+          # Test the compiler first
+          echo "Testing compiler: $CC"
+          $CC --version
+          echo "int main() { return 0; }" > test.c
+          $CC test.c -o test && echo "Compiler test passed" || echo "Compiler test failed"
+          
+          cd ffmpeg
           
           ./configure \
             --prefix="$BUILD_DIR_FFMPEG" \
@@ -108,7 +113,6 @@ jobs:
             --nm="$NM" \
             --ranlib="$RANLIB" \
             --strip="$STRIP" \
-            --extra-cflags="-O3 -fPIC"
             --enable-shared \
             --disable-static \
             --disable-vulkan \
@@ -135,12 +139,22 @@ jobs:
             --enable-libx264 \
             --enable-libx265 \
             --enable-libtheora \
+            --extra-cflags="-fPIC -I$SYSROOT/usr/include" \
+            --extra-ldflags="-pie -L$SYSROOT/usr/lib/$TARGET_TRIPLE/$TARGET_API_LEVEL"
             
           make -j$(nproc)
           make install
+          
+      - name: Show config.log if build fails
+        if: failure()
+        run: |
+          if [ -f "ffmpeg/ffbuild/config.log" ]; then
+            echo "=== CONFIG.LOG CONTENTS ==="
+            tail -100 ffmpeg/ffbuild/config.log
+          fi
           
       - name: Upload FFprobe binary
         uses: actions/upload-artifact@v4
         with:
           name: ${{ github.event.inputs.ffmpeg-prefix }}
-          path: ${{ env.BUILD_DIR_FFMPEG }}
+          path: ${{ env.BUILD_DIR }}/${{ github.event.inputs.ffmpeg-prefix }}
