@@ -28,20 +28,34 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      # 1. Clone FFmpeg repo if missing
+      # 1. Cache FFmpeg source
+      - name: Cache FFmpeg source
+        uses: actions/cache@v4
+        with:
+          path: ffmpeg
+          key: ffmpeg-src-${{ runner.os }}-${{ github.event.inputs.abi }}
+
+      # 2. Clone FFmpeg repo if missing
       - name: Clone FFmpeg
         run: |
           if [ ! -d "ffmpeg/.git" ]; then
             git clone --depth=1 https://github.com/FFmpeg/FFmpeg ffmpeg
           fi
 
-      # 2. Set up Android NDK r28c
+      # 3. Set up Android NDK r28c
       - name: Set up Android NDK
         uses: HoshinoSuzumi/setup-ndk@v1
         with:
           ndk-version: r28c
 
-      # 3. Install build dependencies
+      # 4. Cache ccache
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ffprobe-ccache-${{ runner.os }}-${{ github.event.inputs.abi }}
+
+      # 5. Install build dependencies (cached via ccache)
       - name: Install build dependencies
         run: |
           sudo apt-get update
@@ -50,9 +64,10 @@ jobs:
             yasm \
             pkg-config \
             git \
-            ca-certificates
+            ca-certificates \
+            ccache
 
-      # 4. Sanitize inputs for cache keys
+      # 6. Sanitize inputs for cache keys
       - name: Sanitize input strings
         run: |
           SAN_DEMUXERS=${{ github.event.inputs.demuxers }}; SAN_DEMUXERS=${SAN_DEMUXERS//,/__}
@@ -62,14 +77,14 @@ jobs:
           echo "SAN_PARSERS=$SAN_PARSERS" >> $GITHUB_ENV
           echo "SAN_PROTOCOLS=$SAN_PROTOCOLS" >> $GITHUB_ENV
 
-      # 5. Cache FFprobe build output
+      # 7. Cache FFprobe build output
       - name: Cache FFprobe build
         uses: actions/cache@v4
         with:
           path: build
-          key: ffprobe-${{ github.event.inputs.abi }}-${{ env.SAN_DEMUXERS }}-${{ env.SAN_PARSERS }}-${{ env.SAN_PROTOCOLS }}
+          key: ffprobe-build-${{ github.event.inputs.abi }}-${{ env.SAN_DEMUXERS }}-${{ env.SAN_PARSERS }}-${{ env.SAN_PROTOCOLS }}
 
-      # 6. Configure ABI mapping
+      # 8. Configure ABI mapping
       - name: Configure environment
         run: |
           ABI="${{ github.event.inputs.abi }}"
@@ -102,8 +117,12 @@ jobs:
           echo "OUTPUT_DIR=$GITHUB_WORKSPACE/build/ffprobe-$ABI-${{ github.run_id }}" >> $GITHUB_ENV
           echo "CC=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/${ARCH}-linux-android31-clang" >> $GITHUB_ENV
           echo "CXX=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/${ARCH}-linux-android31-clang++" >> $GITHUB_ENV
+          echo "CCACHE_DIR=$HOME/.ccache" >> $GITHUB_ENV
+          export CCACHE_DIR=$HOME/.ccache
+          export CC="ccache $CC"
+          export CXX="ccache $CXX"
 
-      # 7. Build FFprobe
+      # 9. Build FFprobe
       - name: Build FFprobe
         run: |
           cd ffmpeg
@@ -139,7 +158,7 @@ jobs:
           echo "==== FFprobe Version ===="
           $OUTPUT_DIR/bin/ffprobe -version
 
-      # 8. Upload artifact
+      # 10. Upload artifact
       - name: Upload FFprobe binary
         uses: actions/upload-artifact@v4
         with:
