@@ -30,7 +30,7 @@ on:
         type: string
       additional-configuration-options:
         description: "Additional configuration options"
-        required: true
+        required: false
         type: string
         
 jobs:
