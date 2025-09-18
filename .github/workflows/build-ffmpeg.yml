@@ -26,12 +26,7 @@ on:
       additional-dependencies:
         description: "Additional dependencies"
         required: false
-        default: "libdav1d-dev \
-          libvpx-dev \
-          libx264-dev \
-          libx265-dev \
-          libnuma-dev \
-          libtheora-dev"
+        default: "libdav1d-dev libvpx-dev libx264-dev libx265-dev libnuma-dev libtheora-dev"
         type: string
       additional-configuration-options:
         description: "Additional configuration options"
@@ -47,7 +42,7 @@ jobs:
         uses: actions/checkout@v5
         
       - name: Clone FFmpeg
-        runs: |
+        run: |
           git clone --branch n${{ github.event.inputs.ffmpeg-version }} \
             --single-branch \
             --depth=1 \
