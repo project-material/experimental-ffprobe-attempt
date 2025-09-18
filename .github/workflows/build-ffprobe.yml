@@ -119,7 +119,7 @@ jobs:
             --disable-htmlpages \
             --disable-network \
             --disable-neon \
-            --disable-strip \
+            --disable-stripping \
             --disable-shared \
             --enable-static \
             --enable-ffprobe \
