@@ -78,13 +78,13 @@ jobs:
           echo "OUTPUT_DIR=$GITHUB_WORKSPACE/build/ffprobe-$ABI-${{ github.run_id }}" >> $GITHUB_ENV
           echo "CC=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/${ARCH}-linux-android31-clang" >> $GITHUB_ENV
           echo "CXX=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/${ARCH}-linux-android31-clang++" >> $GITHUB_ENV
-
+          
       - name: Cache FFprobe build
         uses: actions/cache@v4
         with:
           path: build
-          key: ffprobe-${{ github.event.inputs.abi }}-${{ github.event.inputs.demuxers }}-${{ github.event.inputs.parsers }}-${{ github.event.inputs.protocols }}
-
+          key: ffprobe-${{ github.event.inputs.abi }}-${{ github.event.inputs.demuxers.replace(',', '_') }}-${{ github.event.inputs.parsers.replace(',', '_') }}-${{ github.event.inputs.protocols.replace(',', '_') }}
+          
       - name: Build FFprobe
         run: |
           cd ffmpeg
