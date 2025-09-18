@@ -19,9 +19,9 @@ on:
         default: "8.0"
         type: string
       ffmpeg-prefix:
-        description: "FFmpeg prefix"
+        description: "Prefix"
         required: true
-        default: "ffmpeg"
+        default: "ffprobe"
         type: string
       additional-dependencies:
         description: "Additional dependencies"
@@ -67,44 +67,44 @@ jobs:
 
       - name: Configure environment 
         run: |
-          echo "BUILD_DIR=${GITHUB_WORKSPACE}/build" >> GITHUB_ENV
-          echo "BUILD_DIR_FFMPEG=${BUILD_DIR}/${{ github.event.inputs.ffmpeg-prefix }}" >> $GITHUB_ENV
+          echo "BUILD_DIR=$GITHUB_WORKSPACE/build" >> GITHUB_ENV
+          echo "BUILD_DIR_FFMPEG=$BUILD_DIR/${{ github.event.inputs.ffmpeg-prefix }}" >> $GITHUB_ENV
           
           echo "TARGET_API_LEVEL=${{ github.event.inputs.sdk-version }}" >> $GITHUB_ENV
           echo "TARGET_TRIPLE_MACHINE_ARCH=aarch64" >> $GITHUB_ENV
-          echo "TARGET=${TARGET_TRIPLE_MACHINE_ARCH}-linux-android${TARGET_API_LEVEL}" >> $GITHUB_ENV
+          echo "TARGET=$TARGET_TRIPLE_MACHINE_ARCH-linux-android$TARGET_API_LEVEL" >> $GITHUB_ENV
           
-          echo "TOOLCHAIN_PATH=${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-${TARGET_TRIPLE_MACHINE_ARCH}" >> $GITHUB_ENV
-          echo "SYSROOT_PATH=${TOOLCHAIN_PATH}/sysroot" >> $GITHUB_ENV
+          echo "TOOLCHAIN_PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-$TARGET_TRIPLE_MACHINE_ARCH" >> $GITHUB_ENV
+          echo "SYSROOT_PATH=$TOOLCHAIN_PATH/sysroot" >> $GITHUB_ENV
           
-          echo "FAM_CC=${TOOLCHAIN_PATH}/bin/${TARGET}-clang" >> $GITHUB_ENV
-          echo "FAM_CXX=${FAM_CC}++" >> $GITHUB_ENV
-          echo "FAM_LD=${FAM_CC}" >> $GITHUB_ENV
+          echo "FAM_CC=$TOOLCHAIN_PATH/bin/$TARGET-clang" >> $GITHUB_ENV
+          echo "FAM_CXX=$FAM_CC++" >> $GITHUB_ENV
+          echo "FAM_LD=$FAM_CC" >> $GITHUB_ENV
           
-          echo "CROSS_PREFIX_WITH_PATH=${TOOLCHAIN_PATH}/bin/llvm-" >> $GITHUB_ENV
+          echo "CROSS_PREFIX_WITH_PATH=$TOOLCHAIN_PATH/bin/llvm-" >> $GITHUB_ENV
           
-          echo "FAM_AR=${CROSS_PREFIX_WITH_PATH}ar" >> $GITHUB_ENV
-          echo "FAM_NM=${CROSS_PREFIX_WITH_PATH}nm" >> $GITHUB_ENV
-          echo "FAM_RANLIB=${CROSS_PREFIX_WITH_PATH}ranlib" >> $GITHUB_ENV
-          echo "FAM_STRIP=${CROSS_PREFIX_WITH_PATH}strip" >> $GITHUB_ENV
+          echo "FAM_AR=$CROSS_PREFIX_WITH_PATHar" >> $GITHUB_ENV
+          echo "FAM_NM=$CROSS_PREFIX_WITH_PATHnm" >> $GITHUB_ENV
+          echo "FAM_RANLIB=$CROSS_PREFIX_WITH_PATHranlib" >> $GITHUB_ENV
+          echo "FAM_STRIP=$CROSS_PREFIX_WITH_PATHstrip" >> $GITHUB_ENV
           
       - name: Build
         run: |
           cd ffmpeg
           ./configure \
-            --prefix=${BUILD_DIR_FFMPEG} \
+            --prefix="$BUILD_DIR_FFMPEG" \
             --enable-cross-compile \
             --target-os=android \
-            --arch=${TARGET_TRIPLE_MACHINE_ARCH} \
-            --sysroot="${SYSROOT_PATH}" \
-            --cc=${FAM_CC} \
-            --cxx=${FAM_CXX} \
-            --ld=${FAM_LD} \
-            --ar=${FAM_AR} \
-            --as=${FAM_CC} \
-            --nm=${FAM_NM} \
-            --ranlib=${FAM_RANLIB} \
-            --strip=${FAM_STRIP} \
+            --arch=$TARGET_TRIPLE_MACHINE_ARCH \
+            --sysroot="$SYSROOT_PATH" \
+            --cc="$FAM_CC" \
+            --cxx="$FAM_CXX" \
+            --ld="$FAM_LD" \
+            --ar="$FAM_AR" \
+            --as="$FAM_CC" \
+            --nm="$FAM_NM" \
+            --ranlib="$FAM_RANLIB" \
+            --strip="$FAM_STRIP" \
             --enable-shared \
             --disable-static \
             --disable-vulkan \
