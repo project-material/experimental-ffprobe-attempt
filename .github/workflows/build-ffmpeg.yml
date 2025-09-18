@@ -115,7 +115,6 @@ jobs:
             --disable-doc \
             --disable-avdevice \
             --disable-swresample \
-            --disable-postproc \
             --enable-gpl \
             --disable-encoders \
             --disable-hwaccels \
