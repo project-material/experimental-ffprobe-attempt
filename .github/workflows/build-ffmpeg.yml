@@ -11,7 +11,7 @@ on:
       ndk-version:
         description: "Android NDK version"
         required: true
-        default: "28.2.13676358"
+        default: "r28c"
         type: string
       ffmpeg-version:
         description: "FFmpeg version"
