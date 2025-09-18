@@ -10,11 +10,11 @@ on:
       demuxers:
         description: "Comma-separated demuxers to enable"
         required: true
-        default: "mov,matroska,avi,flv,ogg"
+        default: "mov,mp4,mkv,webm,avi,flv,mpeg,matroska,ogg"
       parsers:
         description: "Comma-separated parsers to enable"
         required: true
-        default: "h264,hevc,vp8,vp9,av1"
+        default: "h264,h265,hevc,vp8,vp9,av1,mpeg4,theora,xvid"
       protocols:
         description: "Comma-separated protocols to enable"
         required: true
@@ -25,27 +25,51 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout workflow repo
+      - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Cache FFmpeg source
-        uses: actions/cache@v4
-        with:
-          path: ffmpeg
-          key: ffmpeg-src-${{ runner.os }}-${{ hashFiles('.github/workflows/*.yml') }}
-
-      - name: Clone FFmpeg if not cached
+      # 1. Clone FFmpeg repo if missing
+      - name: Clone FFmpeg
         run: |
           if [ ! -d "ffmpeg/.git" ]; then
-            rm -rf ffmpeg
             git clone --depth=1 https://github.com/FFmpeg/FFmpeg ffmpeg
           fi
 
-      - name: Set up NDK (r28c)
+      # 2. Set up NDK r28c
+      - name: Set up Android NDK
         uses: HoshinoSuzumi/setup-ndk@v1
         with:
           ndk-version: r28c
 
+      # 3. Install build dependencies
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            yasm \
+            pkg-config \
+            git \
+            ca-certificates
+
+      # 4. Sanitize inputs for cache keys
+      - name: Sanitize input strings
+        run: |
+          SAN_DEMUXERS=${{ github.event.inputs.demuxers }}; SAN_DEMUXERS=${SAN_DEMUXERS//,/__}
+          SAN_PARSERS=${{ github.event.inputs.parsers }}; SAN_PARSERS=${SAN_PARSERS//,/__}
+          SAN_PROTOCOLS=${{ github.event.inputs.protocols }}; SAN_PROTOCOLS=${SAN_PROTOCOLS//,/__}
+          echo "SAN_DEMUXERS=$SAN_DEMUXERS" >> $GITHUB_ENV
+          echo "SAN_PARSERS=$SAN_PARSERS" >> $GITHUB_ENV
+          echo "SAN_PROTOCOLS=$SAN_PROTOCOLS" >> $GITHUB_ENV
+
+      # 5. Cache FFprobe build output
+      - name: Cache FFprobe build
+        uses: actions/cache@v4
+        with:
+          path: build
+          key: ffprobe-${{ github.event.inputs.abi }}-${{ env.SAN_DEMUXERS }}-${{ env.SAN_PARSERS }}-${{ env.SAN_PROTOCOLS }}
+
+      # 6. Configure ABI mapping
       - name: Configure environment
         run: |
           ABI="${{ github.event.inputs.abi }}"
@@ -78,13 +102,8 @@ jobs:
           echo "OUTPUT_DIR=$GITHUB_WORKSPACE/build/ffprobe-$ABI-${{ github.run_id }}" >> $GITHUB_ENV
           echo "CC=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/${ARCH}-linux-android31-clang" >> $GITHUB_ENV
           echo "CXX=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/${ARCH}-linux-android31-clang++" >> $GITHUB_ENV
-          
-      - name: Cache FFprobe build
-        uses: actions/cache@v4
-        with:
-          path: build
-          key: ffprobe-${{ github.event.inputs.abi }}-${{ github.event.inputs.demuxers.replace(',', '_') }}-${{ github.event.inputs.parsers.replace(',', '_') }}-${{ github.event.inputs.protocols.replace(',', '_') }}
-          
+
+      # 7. Build FFprobe
       - name: Build FFprobe
         run: |
           cd ffmpeg
@@ -111,7 +130,8 @@ jobs:
           echo "==== FFprobe Version ===="
           $OUTPUT_DIR/bin/ffprobe -version
 
-      - name: Upload artifact
+      # 8. Upload artifact
+      - name: Upload FFprobe binary
         uses: actions/upload-artifact@v4
         with:
           name: ffprobe-${{ github.event.inputs.abi }}
