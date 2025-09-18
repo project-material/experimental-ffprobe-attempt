@@ -137,7 +137,7 @@ jobs:
             --disable-podpages \
             --disable-htmlpages \
             --disable-network \
-            --disable-neon \
+            --enable-neon \
             --disable-stripping \
             --enable-shared \
             --disable-static \
