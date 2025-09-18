@@ -104,6 +104,7 @@ jobs:
               --enable-demuxer=${{ github.event.inputs.demuxers }} \
               --enable-parser=${{ github.event.inputs.parsers }} \
               --enable-protocol=${{ github.event.inputs.protocols }} \
+              --disable-neon \
               --enable-cross-compile \
               --target-os=android \
               --arch=$ABI \
