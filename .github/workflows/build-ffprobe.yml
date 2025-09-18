@@ -139,8 +139,8 @@ jobs:
             --disable-network \
             --disable-neon \
             --disable-stripping \
-            --disable-shared \
-            --enable-static \
+            --enable-shared \
+            --disable-static \
             --enable-ffprobe \
             --enable-demuxer=${{ github.event.inputs.demuxers }} \
             --enable-parser=${{ github.event.inputs.parsers }} \
