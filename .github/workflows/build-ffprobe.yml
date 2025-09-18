@@ -3,129 +3,116 @@ name: Build FFprobe
 on:
   workflow_dispatch:
     inputs:
-      abis:
-        description: 'Select ABIs (comma-separated)'
+      abi:
+        description: "Target ABI (arm64-v8a, armeabi-v7a, x86, x86_64)"
         required: true
-        default: 'arm64-v8a'
-        type: string
-      api_level:
-        description: 'Android API level'
-        required: true
-        default: '21'
-        type: string
+        default: "arm64-v8a"
       demuxers:
-        description: 'Video demuxers (comma-separated)'
+        description: "Comma-separated demuxers to enable"
         required: true
-        default: 'mov,mp4,mkv,webm,avi,flv,mpeg,matroska,ogg'
-        type: string
+        default: "mov,matroska,avi,flv,ogg"
       parsers:
-        description: 'Video parsers (comma-separated)'
+        description: "Comma-separated parsers to enable"
         required: true
-        default: 'h264,h265,hevc,vp8,vp9,av1,mpeg4,theora,xvid'
-        type: string
+        default: "h264,hevc,vp8,vp9,av1"
       protocols:
-        description: 'Protocols (comma-separated)'
+        description: "Comma-separated protocols to enable"
         required: true
-        default: 'file'
-        type: string
+        default: "file"
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout repo
-      - name: Checkout repository
+      - name: Checkout workflow repo
         uses: actions/checkout@v5
 
-      # 2. Set up Android NDK
-      - name: Set up Android NDK
-        uses: HoshinoSuzumi/setup-ndk@v1
-        with:
-          ndk-version: 'r28c'
-
-      # 3. Install build dependencies
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential \
-            yasm \
-            pkg-config \
-            git \
-            ca-certificates
-
-      # 4. Cache FFmpeg source
       - name: Cache FFmpeg source
         uses: actions/cache@v4
-        id: cache-ffmpeg
         with:
           path: ffmpeg
-          key: ffmpeg-source-v1
-          restore-keys: |
-            ffmpeg-source-v1
+          key: ffmpeg-src-${{ runner.os }}-${{ hashFiles('.github/workflows/*.yml') }}
 
-      # 5. Clone FFmpeg if cache miss
-      - name: Clone FFmpeg
-        if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
-        run: git clone --depth 1 https://github.com/FFmpeg/FFmpeg.git ffmpeg
+      - name: Clone FFmpeg if not cached
+        run: |
+          if [ ! -d "ffmpeg/.git" ]; then
+            rm -rf ffmpeg
+            git clone --depth=1 https://github.com/FFmpeg/FFmpeg ffmpeg
+          fi
 
-      # 6. Build FFprobe for selected ABIs
+      - name: Set up NDK (r28c)
+        uses: HoshinoSuzumi/setup-ndk@v1
+        with:
+          ndk-version: r28c
+
+      - name: Configure environment
+        run: |
+          ABI="${{ github.event.inputs.abi }}"
+          case "$ABI" in
+            arm64-v8a)
+              ARCH=aarch64
+              CPU=armv8-a
+              ;;
+            armeabi-v7a)
+              ARCH=arm
+              CPU=armv7-a
+              ;;
+            x86)
+              ARCH=x86
+              CPU=
+              ;;
+            x86_64)
+              ARCH=x86_64
+              CPU=
+              ;;
+            *)
+              echo "Unsupported ABI: $ABI"
+              exit 1
+              ;;
+          esac
+
+          echo "ARCH=$ARCH" >> $GITHUB_ENV
+          echo "CPU=$CPU" >> $GITHUB_ENV
+          echo "ABI=$ABI" >> $GITHUB_ENV
+          echo "OUTPUT_DIR=$GITHUB_WORKSPACE/build/ffprobe-$ABI-${{ github.run_id }}" >> $GITHUB_ENV
+          echo "CC=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/${ARCH}-linux-android31-clang" >> $GITHUB_ENV
+          echo "CXX=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/${ARCH}-linux-android31-clang++" >> $GITHUB_ENV
+
+      - name: Cache FFprobe build
+        uses: actions/cache@v4
+        with:
+          path: build
+          key: ffprobe-${{ github.event.inputs.abi }}-${{ github.event.inputs.demuxers }}-${{ github.event.inputs.parsers }}-${{ github.event.inputs.protocols }}
+
       - name: Build FFprobe
         run: |
-          IFS=',' read -ra ABI_ARRAY <<< "${{ github.event.inputs.abis }}"
-          for ABI in "${ABI_ARRAY[@]}"; do
-            echo "=== Building for ABI: $ABI ==="
-            FFMPEG_DIR="$GITHUB_WORKSPACE/ffmpeg"
-            OUTPUT_DIR="$GITHUB_WORKSPACE/build/ffprobe-${ABI}-${{ github.run_id }}"
-            mkdir -p "$OUTPUT_DIR"
-            cd "$FFMPEG_DIR"
+          cd ffmpeg
+          ./configure \
+            --prefix="$OUTPUT_DIR" \
+            --disable-everything \
+            --disable-ffmpeg \
+            --disable-ffplay \
+            --enable-ffprobe \
+            --enable-demuxer=${{ github.event.inputs.demuxers }} \
+            --enable-parser=${{ github.event.inputs.parsers }} \
+            --enable-protocol=${{ github.event.inputs.protocols }} \
+            --disable-neon \
+            --enable-cross-compile \
+            --target-os=android \
+            --arch=$ARCH \
+            ${CPU:+--cpu=$CPU} \
+            --cc="$CC" \
+            --cxx="$CXX"
 
-            # Map ABI to NDK target
-            case $ABI in
-              arm64-v8a) TARGET=aarch64-linux-android ;;
-              armeabi-v7a) TARGET=armv7a-linux-androideabi ;;
-              x86) TARGET=i686-linux-android ;;
-              x86_64) TARGET=x86_64-linux-android ;;
-            esac
+          make -j$(nproc)
+          make install
 
-            API=${{ github.event.inputs.api_level }}
-            export PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
-            export CC="$TARGET$API-clang"
-            export CXX="$TARGET$API-clang++"
+          echo "==== FFprobe Version ===="
+          $OUTPUT_DIR/bin/ffprobe -version
 
-            # Configure FFmpeg for metadata-only FFprobe
-            ./configure \
-              --prefix="$OUTPUT_DIR" \
-              --disable-everything \
-              --disable-ffmpeg \
-              --disable-ffplay \
-              --enable-ffprobe \
-              --enable-demuxer=${{ github.event.inputs.demuxers }} \
-              --enable-parser=${{ github.event.inputs.parsers }} \
-              --enable-protocol=${{ github.event.inputs.protocols }} \
-              --disable-neon \
-              --enable-cross-compile \
-              --target-os=android \
-              --arch=$ABI \
-              --cc="$CC" \
-              --cxx="$CXX"
-
-            # Build and install
-            make -j$(nproc)
-            make install
-
-            echo "=== FFprobe version for $ABI ==="
-            "$OUTPUT_DIR/bin/ffprobe" -version
-
-            # Save binary path for upload
-            echo "$OUTPUT_DIR/bin/ffprobe" >> $GITHUB_WORKSPACE/artifacts.txt
-          done
-
-      # 7. Upload artifacts
-      - name: Upload FFprobe binaries
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ffprobe-binaries
-          path: |
-            $(cat $GITHUB_WORKSPACE/artifacts.txt)
+          name: ffprobe-${{ github.event.inputs.abi }}
+          path: ${{ env.OUTPUT_DIR }}/bin/ffprobe
