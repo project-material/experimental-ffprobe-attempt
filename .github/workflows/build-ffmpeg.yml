@@ -1,4 +1,4 @@
-name: Build FF
+name: Build FFmpeg for Android
 
 on:
   workflow_dispatch:
@@ -16,7 +16,7 @@ on:
       ffmpeg-version:
         description: "FFmpeg version"
         required: true
-        default: "8.0"
+        default: "n8.0"
         type: string
       ffmpeg-prefix:
         description: "Prefix"
@@ -28,11 +28,7 @@ on:
         required: false
         default: "libdav1d-dev libvpx-dev libx264-dev libx265-dev libnuma-dev libtheora-dev"
         type: string
-      additional-configuration-options:
-        description: "Additional configuration options"
-        required: false
-        type: string
-        
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -43,7 +39,7 @@ jobs:
         
       - name: Clone FFmpeg
         run: |
-          git clone --branch n${{ github.event.inputs.ffmpeg-version }} \
+          git clone --branch ${{ github.event.inputs.ffmpeg-version }} \
             --single-branch \
             --depth=1 \
             https://github.com/FFmpeg/FFmpeg ffmpeg
@@ -58,7 +54,11 @@ jobs:
           sudo apt-get update -qq && sudo apt-get -y install \
             build-essential \
             pkg-config \
-            yasm
+            yasm \
+            nasm \
+            autoconf \
+            automake \
+            libtool
             
       - name: Install additional dependencies
         run: |
@@ -67,44 +67,48 @@ jobs:
 
       - name: Configure environment 
         run: |
-          echo "BUILD_DIR=$GITHUB_WORKSPACE/build" >> GITHUB_ENV
+          echo "BUILD_DIR=$GITHUB_WORKSPACE/build" >> $GITHUB_ENV
           echo "BUILD_DIR_FFMPEG=$BUILD_DIR/${{ github.event.inputs.ffmpeg-prefix }}" >> $GITHUB_ENV
           
           echo "TARGET_API_LEVEL=${{ github.event.inputs.sdk-version }}" >> $GITHUB_ENV
-          echo "TARGET_TRIPLE_MACHINE_ARCH=aarch64" >> $GITHUB_ENV
-          echo "TARGET=$TARGET_TRIPLE_MACHINE_ARCH-linux-android$TARGET_API_LEVEL" >> $GITHUB_ENV
+          echo "TARGET_ARCH=aarch64" >> $GITHUB_ENV
+          echo "TARGET_TRIPLE=aarch64-linux-android" >> $GITHUB_ENV
+          echo "TARGET_PLATFORM=android-$TARGET_API_LEVEL" >> $GITHUB_ENV
           
-          echo "TOOLCHAIN_PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-$TARGET_TRIPLE_MACHINE_ARCH" >> $GITHUB_ENV
-          echo "SYSROOT_PATH=$TOOLCHAIN_PATH/sysroot" >> $GITHUB_ENV
+          echo "NDK_TOOLCHAIN=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64" >> $GITHUB_ENV
+          echo "SYSROOT=$NDK_TOOLCHAIN/sysroot" >> $GITHUB_ENV
           
-          echo "FAM_CC=$TOOLCHAIN_PATH/bin/$TARGET-clang" >> $GITHUB_ENV
-          echo "FAM_CXX=$FAM_CC++" >> $GITHUB_ENV
-          echo "FAM_LD=$FAM_CC" >> $GITHUB_ENV
+          echo "CC=$NDK_TOOLCHAIN/bin/${TARGET_TRIPLE}${TARGET_API_LEVEL}-clang" >> $GITHUB_ENV
+          echo "CXX=$NDK_TOOLCHAIN/bin/${TARGET_TRIPLE}${TARGET_API_LEVEL}-clang++" >> $GITHUB_ENV
+          echo "LD=$NDK_TOOLCHAIN/bin/ld" >> $GITHUB_ENV
+          echo "AR=$NDK_TOOLCHAIN/bin/llvm-ar" >> $GITHUB_ENV
+          echo "AS=$CC" >> $GITHUB_ENV
+          echo "NM=$NDK_TOOLCHAIN/bin/llvm-nm" >> $GITHUB_ENV
+          echo "RANLIB=$NDK_TOOLCHAIN/bin/llvm-ranlib" >> $GITHUB_ENV
+          echo "STRIP=$NDK_TOOLCHAIN/bin/llvm-strip" >> $GITHUB_ENV
           
-          echo "CROSS_PREFIX_WITH_PATH=$TOOLCHAIN_PATH/bin/llvm-" >> $GITHUB_ENV
-          
-          echo "FAM_AR=$CROSS_PREFIX_WITH_PATHar" >> $GITHUB_ENV
-          echo "FAM_NM=$CROSS_PREFIX_WITH_PATHnm" >> $GITHUB_ENV
-          echo "FAM_RANLIB=$CROSS_PREFIX_WITH_PATHranlib" >> $GITHUB_ENV
-          echo "FAM_STRIP=$CROSS_PREFIX_WITH_PATHstrip" >> $GITHUB_ENV
-          
-      - name: Build
+      - name: Build FFmpeg
         run: |
           cd ffmpeg
+          
+          # Set environment variables for the configure script
+          export PATH="$NDK_TOOLCHAIN/bin:$PATH"
+          
           ./configure \
             --prefix="$BUILD_DIR_FFMPEG" \
             --enable-cross-compile \
             --target-os=android \
-            --arch=$TARGET_TRIPLE_MACHINE_ARCH \
-            --sysroot="$SYSROOT_PATH" \
-            --cc="$FAM_CC" \
-            --cxx="$FAM_CXX" \
-            --ld="$FAM_LD" \
-            --ar="$FAM_AR" \
-            --as="$FAM_CC" \
-            --nm="$FAM_NM" \
-            --ranlib="$FAM_RANLIB" \
-            --strip="$FAM_STRIP" \
+            --arch=$TARGET_ARCH \
+            --sysroot="$SYSROOT" \
+            --cc="$CC" \
+            --cxx="$CXX" \
+            --ld="$LD" \
+            --ar="$AR" \
+            --as="$AS" \
+            --nm="$NM" \
+            --ranlib="$RANLIB" \
+            --strip="$STRIP" \
+            --extra-cflags="-O3 -fPIC"
             --enable-shared \
             --disable-static \
             --disable-vulkan \
@@ -124,13 +128,13 @@ jobs:
             --disable-indevs \
             --disable-outdevs \
             --disable-devices \
-            --enable-protocol=file
+            --enable-protocol=file \
             --disable-debug \
             --enable-libdav1d \
             --enable-libvpx \
             --enable-libx264 \
             --enable-libx265 \
-            --enable-libtheora
+            --enable-libtheora \
             
           make -j$(nproc)
           make install
@@ -140,6 +144,3 @@ jobs:
         with:
           name: ${{ github.event.inputs.ffmpeg-prefix }}
           path: ${{ env.BUILD_DIR_FFMPEG }}
-            
-            
-            
