@@ -35,7 +35,7 @@ jobs:
             git clone --depth=1 https://github.com/FFmpeg/FFmpeg ffmpeg
           fi
 
-      # 2. Set up NDK r28c
+      # 2. Set up Android NDK r28c
       - name: Set up Android NDK
         uses: HoshinoSuzumi/setup-ndk@v1
         with:
@@ -112,11 +112,20 @@ jobs:
             --disable-everything \
             --disable-ffmpeg \
             --disable-ffplay \
+            --disable-debug \
+            --disable-doc \
+            --disable-manpages \
+            --disable-podpages \
+            --disable-htmlpages \
+            --disable-network \
+            --disable-neon \
+            --disable-strip \
+            --disable-shared \
+            --enable-static \
             --enable-ffprobe \
             --enable-demuxer=${{ github.event.inputs.demuxers }} \
             --enable-parser=${{ github.event.inputs.parsers }} \
             --enable-protocol=${{ github.event.inputs.protocols }} \
-            --disable-neon \
             --enable-cross-compile \
             --target-os=android \
             --arch=$ARCH \
