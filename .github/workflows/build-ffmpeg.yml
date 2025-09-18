@@ -1,0 +1,151 @@
+name: Build FF
+
+on:
+  workflow_dispatch:
+    inputs:
+      sdk-version:
+        description: "Android SDK version"
+        required: true
+        default: "31"
+        type: string
+      ndk-version:
+        description: "Android NDK version"
+        required: true
+        default: "28.2.13676358"
+        type: string
+      ffmpeg-version:
+        description: "FFmpeg version"
+        required: true
+        default: "8.0"
+        type: string
+      ffmpeg-prefix:
+        description: "FFmpeg prefix"
+        required: true
+        default: "ffmpeg"
+        type: string
+      additional-dependencies:
+        description: "Additional dependencies"
+        required: false
+        default: "libdav1d-dev \
+          libvpx-dev \
+          libx264-dev \
+          libx265-dev \
+          libnuma-dev \
+          libtheora-dev"
+        type: string
+      additional-configuration-options:
+        description: "Additional configuration options"
+        required: true
+        type: string
+        
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        
+      - name: Clone FFmpeg
+        runs: |
+          git clone --branch n${{ github.event.inputs.ffmpeg-version }} \
+            --single-branch \
+            --depth=1 \
+            https://github.com/FFmpeg/FFmpeg ffmpeg
+        
+      - name: Setup Android NDK
+        uses: HoshinoSuzumi/setup-ndk@v1
+        with:
+          ndk-version: ${{ github.event.inputs.ndk-version }}
+          
+      - name: Install required dependencies
+        run: |
+          sudo apt-get update -qq && sudo apt-get -y install \
+            build-essential \
+            pkg-config \
+            yasm
+            
+      - name: Install additional dependencies
+        run: |
+          sudo apt-get -y install -qq \
+            ${{ github.event.inputs.additional-dependencies }}
+
+      - name: Configure environment 
+        run: |
+          echo "BUILD_DIR=${GITHUB_WORKSPACE}/build" >> GITHUB_ENV
+          echo "BUILD_DIR_FFMPEG=${BUILD_DIR}/${{ github.event.inputs.ffmpeg-prefix }}" >> $GITHUB_ENV
+          
+          echo "TARGET_API_LEVEL=${{ github.event.inputs.sdk-version }}" >> $GITHUB_ENV
+          echo "TARGET_TRIPLE_MACHINE_ARCH=aarch64" >> $GITHUB_ENV
+          echo "TARGET=${TARGET_TRIPLE_MACHINE_ARCH}-linux-android${TARGET_API_LEVEL}" >> $GITHUB_ENV
+          
+          echo "TOOLCHAIN_PATH=${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-${TARGET_TRIPLE_MACHINE_ARCH}" >> $GITHUB_ENV
+          echo "SYSROOT_PATH=${TOOLCHAIN_PATH}/sysroot" >> $GITHUB_ENV
+          
+          echo "FAM_CC=${TOOLCHAIN_PATH}/bin/${TARGET}-clang" >> $GITHUB_ENV
+          echo "FAM_CXX=${FAM_CC}++" >> $GITHUB_ENV
+          echo "FAM_LD=${FAM_CC}" >> $GITHUB_ENV
+          
+          echo "CROSS_PREFIX_WITH_PATH=${TOOLCHAIN_PATH}/bin/llvm-" >> $GITHUB_ENV
+          
+          echo "FAM_AR=${CROSS_PREFIX_WITH_PATH}ar" >> $GITHUB_ENV
+          echo "FAM_NM=${CROSS_PREFIX_WITH_PATH}nm" >> $GITHUB_ENV
+          echo "FAM_RANLIB=${CROSS_PREFIX_WITH_PATH}ranlib" >> $GITHUB_ENV
+          echo "FAM_STRIP=${CROSS_PREFIX_WITH_PATH}strip" >> $GITHUB_ENV
+          
+      - name: Build
+        run: |
+          cd ffmpeg
+          ./configure \
+            --prefix=${BUILD_DIR_FFMPEG} \
+            --enable-cross-compile \
+            --target-os=android \
+            --arch=${TARGET_TRIPLE_MACHINE_ARCH} \
+            --sysroot="${SYSROOT_PATH}" \
+            --cc=${FAM_CC} \
+            --cxx=${FAM_CXX} \
+            --ld=${FAM_LD} \
+            --ar=${FAM_AR} \
+            --as=${FAM_CC} \
+            --nm=${FAM_NM} \
+            --ranlib=${FAM_RANLIB} \
+            --strip=${FAM_STRIP} \
+            --enable-shared \
+            --disable-static \
+            --disable-vulkan \
+            --enable-small \
+            --disable-ffplay \
+            --disable-ffmpeg \
+            --enable-ffprobe \
+            --disable-doc \
+            --disable-avdevice \
+            --disable-swresample \
+            --disable-postproc \
+            --enable-gpl \
+            --disable-encoders \
+            --disable-hwaccels \
+            --disable-muxers \
+            --disable-bsfs \
+            --disable-protocols \
+            --disable-indevs \
+            --disable-outdevs \
+            --disable-devices \
+            --enable-protocol=file
+            --disable-debug \
+            --enable-libdav1d \
+            --enable-libvpx \
+            --enable-libx264 \
+            --enable-libx265 \
+            --enable-libtheora
+            
+          make -j$(nproc)
+          make install
+          
+      - name: Upload FFprobe binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ github.event.inputs.ffmpeg-prefix }}
+          path: ${{ env.BUILD_DIR_FFMPEG }}
+            
+            
+            
