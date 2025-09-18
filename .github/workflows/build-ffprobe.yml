@@ -1,0 +1,123 @@
+name: Build FFprobe
+
+on:
+  workflow_dispatch:
+    inputs:
+      abis:
+        description: 'Select ABIs (comma-separated)'
+        required: true
+        default: 'arm64-v8a'
+        type: string
+      api_level:
+        description: 'Android API level'
+        required: true
+        default: '21'
+        type: string
+      demuxers:
+        description: 'Video demuxers (comma-separated)'
+        required: true
+        default: 'mov,mp4,mkv,webm,avi,flv,mpeg,matroska,ogg'
+        type: string
+      parsers:
+        description: 'Video parsers (comma-separated)'
+        required: true
+        default: 'h264,h265,hevc,vp8,vp9,av1,mpeg4,theora,xvid'
+        type: string
+      protocols:
+        description: 'Protocols (comma-separated)'
+        required: true
+        default: 'file'
+        type: string
+      codecs:
+        description: 'Additional codecs to enable (optional)'
+        required: false
+        default: ''
+        type: string
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout repo
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Set up Android NDK
+      - name: Set up Android NDK
+        uses: HoshinoSuzumi/setup-ndk@v1
+        with:
+          ndk-version: 'r28c'
+
+      # 3. Install build dependencies
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential yasm pkg-config git
+
+      # 4. Cache FFmpeg source
+      - name: Cache FFmpeg source
+        uses: actions/cache@v3
+        id: cache-ffmpeg
+        with:
+          path: ffmpeg
+          key: ffmpeg-source-v1
+          restore-keys: |
+            ffmpeg-source-v1
+
+      # 5. Clone FFmpeg if cache miss
+      - name: Clone FFmpeg
+        if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
+        run: git clone --depth 1 https://github.com/FFmpeg/FFmpeg.git ffmpeg
+
+      # 6. Build FFprobe for selected ABIs
+      - name: Build FFprobe
+        run: |
+          IFS=',' read -ra ABI_ARRAY <<< "${{ github.event.inputs.abis }}"
+          for ABI in "${ABI_ARRAY[@]}"; do
+            echo "=== Building for ABI: $ABI ==="
+            FFMPEG_DIR="$GITHUB_WORKSPACE/ffmpeg"
+            OUTPUT_DIR="$GITHUB_WORKSPACE/build/ffprobe-${ABI}-${{ github.run_id }}"
+            mkdir -p "$OUTPUT_DIR"
+            cd "$FFMPEG_DIR"
+
+            # Map ABI to NDK target
+            case $ABI in
+              arm64-v8a) TARGET=aarch64-linux-android ;;
+              armeabi-v7a) TARGET=armv7a-linux-androideabi ;;
+              x86) TARGET=i686-linux-android ;;
+              x86_64) TARGET=x86_64-linux-android ;;
+            esac
+
+            API=${{ github.event.inputs.api_level }}
+            export PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
+            export CC="$TARGET$API-clang"
+            export CXX="$TARGET$API-clang++"
+
+            # Configure FFmpeg for metadata-only FFprobe
+            ./configure \
+              --prefix="$OUTPUT_DIR" \
+              --disable-everything \
+              --disable-ffmpeg \
+              --disable-ffplay \
+              --enable-ffprobe \
+              --enable-demuxer=${{ github.event.inputs.demuxers }} \
+              --enable-parser=${{ github.event.inputs.parsers }} \
+              --enable-protocol=${{ github.event.inputs.protocols }} \
+              $( [ -n "${{ github.event.inputs.codecs }}" ] && echo "--enable-encoder=${{ github.event.inputs.codecs }} --enable-decoder=${{ github.event.inputs.codecs }}" ) \
+              --enable-cross-compile \
+              --target-os=android \
+              --arch=$ABI \
+              --cc="$CC" \
+              --cxx="$CXX"
+
+            # Build and install
+            make -j$(nproc)
+            make install
+
+            # Show FFprobe version
+            echo "=== FFprobe version for $ABI ==="
+            "$OUTPUT_DIR/bin/ffprobe" -version
+
+            # Upload artifact
+            echo "Uploading artifact for $ABI..."
+            gh run upload-artifact "$OUTPUT_DIR/bin/ffprobe" --name "ffprobe-${ABI}"
+          done
